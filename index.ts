@@ -3,6 +3,10 @@ import StagehandConfig from "./stagehand.config.js";
 import chalk from "chalk";
 import boxen from "boxen";
 import * as fs from 'fs/promises';
+import * as path from 'path';
+import TurndownService from 'turndown';
+
+const turndownService = new TurndownService();
 
 async function main({
     page,
@@ -27,7 +31,47 @@ async function main({
       return;
     }
 
+    const firstLink = links[0];
+    const fullUrl = `https://wiki.yandex.ru${firstLink}`;
+    await page.goto(fullUrl);
 
+    // 3. Извлекаем контент и конвертируем в Markdown
+    const rawHtml = await page.evaluate(() => {
+      const mainContent = document.querySelector('.PageDoc-Main');
+      return mainContent?.innerHTML || '';
+    });
+
+    const pageContent = turndownService.turndown(rawHtml);
+    console.log(pageContent);
+
+    // 4. Извлекаем картинки и сохраняем их
+    const images = await page.evaluate(() => {
+      const contentFolder = document.querySelector('div.PageDoc-Content.PageDoc-Content_type_wysiwyg') || document.body;
+      const imgElements = contentFolder.querySelectorAll('img');
+      return Array.from(imgElements).map(img => ({
+        src: img.src,
+        alt: img.alt || '',
+      }));
+    });
+
+    const imageDir = path.join('Images', firstLink.replace(/^\/|\/$/g, '')); // Убираем ведущие и конечные слэши
+    await fs.mkdir(imageDir, { recursive: true });
+
+    for (const image of images) {
+      if (image.src) {
+        try {
+          const response = await page.goto(image.src);
+          const buffer = await response?.body();
+          if (!buffer) throw new Error(`No response body`);
+          const fileName = path.basename(new URL(image.src).pathname);
+          const imagePath = path.join(imageDir, fileName);
+          await fs.writeFile(imagePath, buffer);
+          console.log(`Сохранена картинка: ${imagePath}`);
+        } catch (err) {
+          console.error(`Ошибка при сохранении картинки ${image.src}:`, err);
+        }
+      }
+    }
 
   } catch (error) {
     console.error('Произошла ошибка:', error);
