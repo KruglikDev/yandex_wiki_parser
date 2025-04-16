@@ -5,6 +5,7 @@ import boxen from "boxen";
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import TurndownService from 'turndown';
+import { Client } from 'pg'; // Подключаем клиент PostgreSQL
 
 const turndownService = new TurndownService();
 
@@ -44,7 +45,28 @@ async function main({
     const pageContent = turndownService.turndown(rawHtml);
     console.log(pageContent);
 
-    // 4. Извлекаем картинки и сохраняем их
+    // 4. Подключение к PostgreSQL
+    const client = new Client({
+      user: 'kruglik',
+      host: 'localhost', // или адрес контейнера, если база не на локальном хосте
+      database: 'yandex_wiki_db',
+      password: '123',
+      port: 5438,
+    });
+
+    await client.connect();
+
+    // 5. Сохраняем контент в БД
+    const insertQuery = `
+            INSERT INTO wiki (route, content)
+            VALUES ($1, $2)
+            ON CONFLICT (route) DO UPDATE SET content = EXCLUDED.content;
+        `;
+    await client.query(insertQuery, [firstLink, pageContent]);
+
+    console.log(`Сохранено в БД: ${firstLink}`);
+
+    // 6. Извлекаем картинки и сохраняем их
     const images = await page.evaluate(() => {
       const contentFolder = document.querySelector('div.PageDoc-Content.PageDoc-Content_type_wysiwyg') || document.body;
       const imgElements = contentFolder.querySelectorAll('img');
