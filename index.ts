@@ -42,10 +42,35 @@ async function main({
                 await page.goto(fullUrl);
                 const cleanedLink = link.replace(/^\/|\/$/g, '');
 
-                // 4. Extract content
+                await page.mouse.wheel(0, 500);
+
+                const headerInfo = await page.evaluate(() => {
+                const headerEl = document.querySelector('.PageDoc-Header');
+                if (!headerEl) return null;
+
+                const authorEl = document.querySelector('.UserName');
+                const titleEl = headerEl.querySelector('.DocTitle');
+                const updatedEl = document.querySelector('.PageDoc-Updated');
+
+                return {
+                    author: authorEl?.textContent?.trim() || '',
+                    title: titleEl?.textContent?.trim() || '',
+                    updated: updatedEl?.textContent?.trim() || ''
+                    };
+                 });
+
+                if (!headerInfo) {
+                    console.error(`No header info found for ${link}`);
+                    continue; // Пропускаем эту ссылку, если заголовок не найден
+                }
+
+                const headerMarkdown = `## ${headerInfo.title}\n\n**Автор:** ${headerInfo.author}\n\n**${headerInfo.updated}**\n\n`;
+                console.log(chalk.gray(`[DEBUG] Header info for ${link}: ${JSON.stringify(headerInfo)}`));
+
+                // Затем внутри извлечения контента:
                 const data = await page.evaluate((linkKey) => {
-                // @ts-ignore
-                return window.__DATA__.preloadedState.pages.entities[linkKey]?.content;
+                    // @ts-ignore
+                    return window.__DATA__.preloadedState.pages.entities[linkKey]?.content;
                 }, cleanedLink);
 
                 if (!data) {
@@ -53,7 +78,7 @@ async function main({
                     continue;
                 }
 
-                const content = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+                const content = typeof data === 'string' ? `${headerMarkdown}${data}` : `${headerMarkdown}${JSON.stringify(data, null, 2)}`;
                 console.log(chalk.green(`Extracted content for ${link}${content}`));
 
                 // 5. Uncomment and use PostgreSQL connection if needed
