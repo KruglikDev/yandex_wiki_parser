@@ -17,6 +17,16 @@ async function main({
     await page.goto("https://wiki.yandex.ru/");
     await page.pause();
 
+    const client = new Client({
+        user: 'kruglik',
+        host: 'localhost',
+        database: 'yandex_wiki_db',
+        password: '123',
+        port: 5438,
+    });
+
+    await client.connect();
+
     try {
         const jsonData = await fs.readFile('./linksFiltered.json', 'utf-8');
         const links = JSON.parse(jsonData);
@@ -32,9 +42,9 @@ async function main({
                 console.log(chalk.blue(`Processing: ${fullUrl}`));
 
                 await page.goto(fullUrl);
-                await page.waitForTimeout(1500); // ⏱ Пауза после перехода
+                await page.waitForTimeout(1500);
                 await page.mouse.wheel(0, 500);
-                await page.waitForTimeout(2300); // ⏱ Пауза после скролла
+                await page.waitForTimeout(2300);
 
                 const cleanedLink = link.replace(/^\/|\/$/g, '');
 
@@ -77,9 +87,18 @@ async function main({
 
                 console.log(chalk.green(`Extracted content for ${link}${content}`));
 
-                // (DB сохранение можно вернуть по желанию)
+                // Сохраняем в базу данных
+                const insertQuery = `
+                    INSERT INTO wiki (route, content, isParsed)
+                    VALUES ($1, $2, TRUE)
+                    ON CONFLICT (route) DO UPDATE
+                    SET content = EXCLUDED.content,
+                        isParsed = TRUE;
+                `;
+                await client.query(insertQuery, [link, content]);
+                console.log(chalk.green(`Saved to DB: ${link}`));
 
-                // 📥 Сохранение картинок
+                // Сохраняем изображения
                 const images = await page.evaluate(() => {
                     const contentFolder = document.querySelector('div.PageDoc-Content.PageDoc-Content_type_wysiwyg') || document.body;
                     const imgElements = contentFolder.querySelectorAll('img');
@@ -102,14 +121,14 @@ async function main({
                             const imagePath = path.join(imageDir, fileName);
                             await fs.writeFile(imagePath, buffer);
                             console.log(chalk.green(`Saved image: ${imagePath}`));
-                            await page.waitForTimeout(2300); // ⏱ Пауза мпаежду загрузками картинок
+                            await page.waitForTimeout(2300);
                         } catch (err) {
                             console.error(chalk.red(`Error saving image ${image.src}: ${err}`));
                         }
                     }
                 }
 
-                await page.waitForTimeout(3700); // ⏱ Пауза перед следующей ссылкой
+                await page.waitForTimeout(3700);
 
             } catch (error) {
                 console.error(chalk.red(`Error processing link ${link}: ${error}`));
@@ -120,6 +139,9 @@ async function main({
 
     } catch (error) {
         console.error(chalk.red('General error:', error));
+    } finally {
+        await client.end();
+        console.log(chalk.yellow('Disconnected from DB'));
     }
 }
 
