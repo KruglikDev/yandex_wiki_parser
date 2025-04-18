@@ -1,131 +1,130 @@
 import { Stagehand, Page, BrowserContext } from "@browserbasehq/stagehand";
 import StagehandConfig from "./stagehand.config.js";
 import chalk from "chalk";
-import boxen from "boxen";
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import TurndownService from 'turndown';
 import { Client } from 'pg'; // Подключаем клиент PostgreSQL
-
-const turndownService = new TurndownService();
 
 async function main({
     page,
     context,
     stagehand,
-  }: {
-  page: Page; // Playwright Page with act, extract, and observe methods
-  context: BrowserContext; // Playwright BrowserContext
-  stagehand: Stagehand; // Stagehand instance
+}: {
+    page: Page;
+    context: BrowserContext;
+    stagehand: Stagehand;
 }) {
-  await page.goto("https://wiki.yandex.ru/");
-  await page.pause();
+    await page.goto("https://wiki.yandex.ru/");
+    await page.pause();
 
-  try {
-    // 1. Читаем JSON файл
-    const jsonData = await fs.readFile('./linksFiltered.json', 'utf-8');
-    const links = JSON.parse(jsonData);
+    try {
+        // 1. Read JSON file
+        const jsonData = await fs.readFile('./linksFiltered.json', 'utf-8');
+        const links = JSON.parse(jsonData);
 
-    // 2. Берем первую ссылку (первую строку)
-    if (!Array.isArray(links) || links.length === 0 || typeof links[0] !== 'string') {
-      console.error('JSON файл имеет неверный формат. Ожидается массив строк.');
-      return;
-    }
-
-    const firstLink = links[0];
-    const fullUrl = `https://wiki.yandex.ru${firstLink}`;
-    await page.goto(fullUrl);
-
-    // 3. Извлекаем контент и конвертируем в Markdown
-    const rawHtml = await page.evaluate(() => {
-      const mainContent = document.querySelector('.PageDoc-Main');
-      return mainContent?.innerHTML || '';
-    });
-
-    const pageContent = turndownService.turndown(rawHtml);
-    console.log(pageContent);
-
-    // 4. Подключение к PostgreSQL
-    const client = new Client({
-      user: 'kruglik',
-      host: 'localhost', // или адрес контейнера, если база не на локальном хосте
-      database: 'yandex_wiki_db',
-      password: '123',
-      port: 5438,
-    });
-
-    await client.connect();
-
-    // 5. Сохраняем контент в БД
-    const insertQuery = `
-            INSERT INTO wiki (route, content)
-            VALUES ($1, $2)
-            ON CONFLICT (route) DO UPDATE SET content = EXCLUDED.content;
-        `;
-    await client.query(insertQuery, [firstLink, pageContent]);
-
-    console.log(`Сохранено в БД: ${firstLink}`);
-
-    // 6. Извлекаем картинки и сохраняем их
-    const images = await page.evaluate(() => {
-      const contentFolder = document.querySelector('div.PageDoc-Content.PageDoc-Content_type_wysiwyg') || document.body;
-      const imgElements = contentFolder.querySelectorAll('img');
-      return Array.from(imgElements).map(img => ({
-        src: img.src,
-        alt: img.alt || '',
-      }));
-    });
-
-    const imageDir = path.join('Images', firstLink.replace(/^\/|\/$/g, '')); // Убираем ведущие и конечные слэши
-    await fs.mkdir(imageDir, { recursive: true });
-
-    for (const image of images) {
-      if (image.src) {
-        try {
-          const response = await page.goto(image.src);
-          const buffer = await response?.body();
-          if (!buffer) throw new Error(`No response body`);
-          const fileName = path.basename(new URL(image.src).pathname);
-          const imagePath = path.join(imageDir, fileName);
-          await fs.writeFile(imagePath, buffer);
-          console.log(`Сохранена картинка: ${imagePath}`);
-        } catch (err) {
-          console.error(`Ошибка при сохранении картинки ${image.src}:`, err);
+        // 2. Validate links array
+        if (!Array.isArray(links) || links.length === 0) {
+            console.error('JSON file is empty or not an array');
+            return;
         }
-      }
-    }
 
-  } catch (error) {
-    console.error('Произошла ошибка:', error);
-  }
+        // 3. Iterate through all links
+        for (const link of links) {
+            if (typeof link !== 'string') {
+                console.error(`Invalid link format: ${link}`);
+                continue;
+            }
+
+            try {
+                const fullUrl = `https://wiki.yandex.ru${link}`;
+                console.log(chalk.blue(`Processing: ${fullUrl}`));
+
+                await page.goto(fullUrl);
+                const cleanedLink = link.replace(/^\/|\/$/g, '');
+
+                // 4. Extract content
+                const data = await page.evaluate((linkKey) => {
+                // @ts-ignore
+                return window.__DATA__.preloadedState.pages.entities[linkKey]?.content;
+                }, cleanedLink);
+
+                if (!data) {
+                    console.error(`No content found for ${link}`);
+                    continue;
+                }
+
+                const content = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+                console.log(chalk.green(`Extracted content for ${link}${content}`));
+
+                // 5. Uncomment and use PostgreSQL connection if needed
+                /*
+                const client = new Client({
+                    user: 'kruglik',
+                    host: 'localhost',
+                    database: 'yandex_wiki_db',
+                    password: '123',
+                    port: 5438,
+                });
+
+                await client.connect();
+
+                const insertQuery = `
+                    INSERT INTO wiki (route, content)
+                    VALUES ($1, $2)
+                    ON CONFLICT (route) DO UPDATE SET content = EXCLUDED.content;
+                `;
+                await client.query(insertQuery, [link, content]);
+                await client.end();
+                console.log(chalk.green(`Saved to DB: ${link}`));
+                */
+
+                // 6. Extract and save images
+                const images = await page.evaluate(() => {
+                    const contentFolder = document.querySelector('div.PageDoc-Content.PageDoc-Content_type_wysiwyg') || document.body;
+                    const imgElements = contentFolder.querySelectorAll('img');
+                    return Array.from(imgElements).map(img => ({
+                        src: img.src,
+                        alt: img.alt || '',
+                    }));
+                });
+
+                const imageDir = path.join('Images', link.replace(/^\/|\/$/g, ''));
+                await fs.mkdir(imageDir, { recursive: true });
+
+                for (const image of images) {
+                    if (image.src) {
+                        try {
+                            const response = await page.goto(image.src);
+                            const buffer = await response?.body();
+                            if (!buffer) throw new Error(`No response body`);
+                            const fileName = path.basename(new URL(image.src).pathname);
+                            const imagePath = path.join(imageDir, fileName);
+                            await fs.writeFile(imagePath, buffer);
+                            console.log(chalk.green(`Saved image: ${imagePath}`));
+                        } catch (err) {
+                            console.error(chalk.red(`Error saving image ${image.src}: ${err}`));
+                        }
+                    }
+                }
+
+            } catch (error) {
+                console.error(chalk.red(`Error processing link ${link}: ${error}`));
+                continue; // Continue with the next link
+            }
+        }
+
+        console.log(chalk.blue('Finished processing all links'));
+
+    } catch (error) {
+        console.error(chalk.red('General error:', error));
+    }
 }
 
-/**
- * This is the main function that runs when you do npm run start
- *
- * YOU PROBABLY DON'T NEED TO MODIFY ANYTHING BELOW THIS POINT!
- *
- */
 async function run() {
   const stagehand = new Stagehand({
     ...StagehandConfig,
   });
   await stagehand.init();
-
-  if (StagehandConfig.env === "BROWSERBASE" && stagehand.browserbaseSessionID) {
-    console.log(
-      boxen(
-        `View this session live in your browser: \n${chalk.blue(
-          `https://browserbase.com/sessions/${stagehand.browserbaseSessionID}`,
-        )}`,
-        {
-          title: "Browserbase",
-          padding: 1,
-          margin: 3,
-        },
-      ),
-    );
-  }
 
   const page = stagehand.page;
   const context = stagehand.context;
