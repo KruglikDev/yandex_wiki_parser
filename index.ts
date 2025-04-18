@@ -4,7 +4,8 @@ import chalk from "chalk";
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import pg from 'pg';
-import {createProxyManager} from "./proxyChecker.js"; // Подключаем клиент PostgreSQL
+import {createProxyManager} from "./proxyChecker.js";
+import processNewLinks from "./processLinks.js"; // Подключаем клиент PostgreSQL
 
 async function main({
     page,
@@ -30,7 +31,7 @@ async function main({
     await client.connect();
 
     try {
-        const jsonData = await fs.readFile('./links.json', 'utf-8');
+        const jsonData = await fs.readFile('./linksFiltered.json', 'utf-8');
         const links = JSON.parse(jsonData);
 
         if (!Array.isArray(links) || links.length === 0) {
@@ -47,6 +48,10 @@ async function main({
                 await page.waitForTimeout(1500);
                 await page.mouse.wheel(0, 500);
                 await page.waitForTimeout(2300);
+
+                // Добавляем обработку ссылок
+                const newLinks = await processNewLinks(page);
+                console.log(`Найдено ${newLinks.length} новых ссылок`);
 
                 const cleanedLink = link.replace(/^\/|\/$/g, '');
 
