@@ -18,7 +18,7 @@ declare global {
     }
 }
 
-export async function createProxyManager(proxyFilePath = './proxy.txt'): Promise<ProxyManager> {
+export async function createProxyManager(proxyFilePath = './proxies.txt'): Promise<ProxyManager> {
     let proxies: Proxy[] = [];
 
     try {

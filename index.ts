@@ -3,7 +3,7 @@ import StagehandConfig from "./stagehand.config.js";
 import chalk from "chalk";
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { Client } from 'pg';
+import pg from 'pg';
 import {createProxyManager} from "./proxyChecker.js"; // Подключаем клиент PostgreSQL
 
 async function main({
@@ -18,6 +18,7 @@ async function main({
     await page.goto("https://wiki.yandex.ru/");
     await page.pause();
 
+    const { Client } = pg;
     const client = new Client({
         user: 'kruglik',
         host: 'localhost',
@@ -29,7 +30,7 @@ async function main({
     await client.connect();
 
     try {
-        const jsonData = await fs.readFile('./linksFiltered.json', 'utf-8');
+        const jsonData = await fs.readFile('./links.json', 'utf-8');
         const links = JSON.parse(jsonData);
 
         if (!Array.isArray(links) || links.length === 0) {
