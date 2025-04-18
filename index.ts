@@ -3,7 +3,8 @@ import StagehandConfig from "./stagehand.config.js";
 import chalk from "chalk";
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { Client } from 'pg'; // Подключаем клиент PostgreSQL
+import { Client } from 'pg';
+import {createProxyManager} from "./proxyChecker.js"; // Подключаем клиент PostgreSQL
 
 async function main({
     page,
@@ -146,24 +147,54 @@ async function main({
 }
 
 async function run() {
+  // Создаем менеджер прокси
+  const proxyManager = await createProxyManager();
+  const proxyUrl = await proxyManager.getProxyWithRetry();
+
+  if (!proxyUrl) {
+    console.error('Не удалось найти рабочий прокси. Запуск без прокси.');
+    return;
+  }
+
+  // Парсим URL прокси для извлечения данных
+  let proxyConfig;
+  if (proxyUrl) {
+    const url = new URL(proxyUrl);
+    proxyConfig = {
+      server: `${url.protocol}//${url.host}`,
+      bypass: 'localhost',
+      username: url.username || undefined,
+      password: url.password || undefined
+    };
+  }
+
   const stagehand = new Stagehand({
     ...StagehandConfig,
+    localBrowserLaunchOptions: {
+      ...StagehandConfig.localBrowserLaunchOptions,
+      ...(proxyUrl ? { proxy: proxyConfig } : {}) // Добавляем прокси только если он есть
+    }
   });
+
   await stagehand.init();
 
   const page = stagehand.page;
   const context = stagehand.context;
-  await main({
-    page,
-    context,
-    stagehand,
-  });
-  // await stagehand.close();
-  console.log(
-    `\n🤘 Thanks so much for using Stagehand! Reach out to us on Slack if you have any feedback: ${chalk.blue(
-      "https://stagehand.dev/slack",
-    )}\n`,
-  );
+
+  try {
+    await main({
+      page,
+      context,
+      stagehand,
+    });
+  } finally {
+    // await stagehand.close(); // Раскомментируйте, если нужно закрывать браузер
+    console.log(
+      `\n🤘 Thanks so much for using Stagehand! Reach out to us on Slack if you have any feedback: ${chalk.blue(
+        "https://stagehand.dev/slack",
+      )}\n`,
+    );
+  }
 }
 
 run();
