@@ -102,9 +102,13 @@ async function main({
 
                 // Сохраняем изображения
                 const images = await page.evaluate(() => {
-                    const contentFolder = document.querySelector('div.PageDoc-Content.PageDoc-Content_type_wysiwyg') || document.body;
-                    const imgElements = contentFolder.querySelectorAll('img');
-                    return Array.from(imgElements).map(img => ({
+                const contentFolder = document.querySelector('div.PageDoc-Content.PageDoc-Content_type_wysiwyg') || document.body;
+                const imgElements = contentFolder.querySelectorAll('img');
+
+                // Фильтруем элементы, исключая те, которые содержат класс g-avatar__image
+                return Array.from(imgElements)
+                    .filter(img => !img.classList.contains('g-avatar__image'))
+                    .map(img => ({
                         src: img.src,
                         alt: img.alt || '',
                     }));
