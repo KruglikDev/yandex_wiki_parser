@@ -18,56 +18,49 @@ async function main({
     await page.pause();
 
     try {
-        // 1. Read JSON file
         const jsonData = await fs.readFile('./linksFiltered.json', 'utf-8');
         const links = JSON.parse(jsonData);
 
-        // 2. Validate links array
         if (!Array.isArray(links) || links.length === 0) {
             console.error('JSON file is empty or not an array');
             return;
         }
 
-        // 3. Iterate through all links
         for (const link of links) {
-            if (typeof link !== 'string') {
-                console.error(`Invalid link format: ${link}`);
-                continue;
-            }
-
             try {
                 const fullUrl = `https://wiki.yandex.ru${link}`;
                 console.log(chalk.blue(`Processing: ${fullUrl}`));
 
                 await page.goto(fullUrl);
+                await page.waitForTimeout(1500); // ⏱ Пауза после перехода
+                await page.mouse.wheel(0, 500);
+                await page.waitForTimeout(2300); // ⏱ Пауза после скролла
+
                 const cleanedLink = link.replace(/^\/|\/$/g, '');
 
-                await page.mouse.wheel(0, 500);
-
                 const headerInfo = await page.evaluate(() => {
-                const headerEl = document.querySelector('.PageDoc-Header');
-                if (!headerEl) return null;
+                    const headerEl = document.querySelector('.PageDoc-Header');
+                    if (!headerEl) return null;
 
-                const authorEl = document.querySelector('.UserName');
-                const titleEl = headerEl.querySelector('.DocTitle');
-                const updatedEl = document.querySelector('.PageDoc-Updated');
+                    const authorEl = document.querySelector('.UserName');
+                    const titleEl = headerEl.querySelector('.DocTitle');
+                    const updatedEl = document.querySelector('.PageDoc-Updated');
 
-                return {
-                    author: authorEl?.textContent?.trim() || '',
-                    title: titleEl?.textContent?.trim() || '',
-                    updated: updatedEl?.textContent?.trim() || ''
+                    return {
+                        author: authorEl?.textContent?.trim() || '',
+                        title: titleEl?.textContent?.trim() || '',
+                        updated: updatedEl?.textContent?.trim() || ''
                     };
-                 });
+                });
 
                 if (!headerInfo) {
                     console.error(`No header info found for ${link}`);
-                    continue; // Пропускаем эту ссылку, если заголовок не найден
+                    continue;
                 }
 
                 const headerMarkdown = `## ${headerInfo.title}\n\n**Автор:** ${headerInfo.author}\n\n**${headerInfo.updated}**\n\n`;
                 console.log(chalk.gray(`[DEBUG] Header info for ${link}: ${JSON.stringify(headerInfo)}`));
 
-                // Затем внутри извлечения контента:
                 const data = await page.evaluate((linkKey) => {
                     // @ts-ignore
                     return window.__DATA__.preloadedState.pages.entities[linkKey]?.content;
@@ -78,32 +71,15 @@ async function main({
                     continue;
                 }
 
-                const content = typeof data === 'string' ? `${headerMarkdown}${data}` : `${headerMarkdown}${JSON.stringify(data, null, 2)}`;
+                const content = typeof data === 'string'
+                    ? `${headerMarkdown}${data}`
+                    : `${headerMarkdown}${JSON.stringify(data, null, 2)}`;
+
                 console.log(chalk.green(`Extracted content for ${link}${content}`));
 
-                // 5. Uncomment and use PostgreSQL connection if needed
-                /*
-                const client = new Client({
-                    user: 'kruglik',
-                    host: 'localhost',
-                    database: 'yandex_wiki_db',
-                    password: '123',
-                    port: 5438,
-                });
+                // (DB сохранение можно вернуть по желанию)
 
-                await client.connect();
-
-                const insertQuery = `
-                    INSERT INTO wiki (route, content)
-                    VALUES ($1, $2)
-                    ON CONFLICT (route) DO UPDATE SET content = EXCLUDED.content;
-                `;
-                await client.query(insertQuery, [link, content]);
-                await client.end();
-                console.log(chalk.green(`Saved to DB: ${link}`));
-                */
-
-                // 6. Extract and save images
+                // 📥 Сохранение картинок
                 const images = await page.evaluate(() => {
                     const contentFolder = document.querySelector('div.PageDoc-Content.PageDoc-Content_type_wysiwyg') || document.body;
                     const imgElements = contentFolder.querySelectorAll('img');
@@ -113,7 +89,7 @@ async function main({
                     }));
                 });
 
-                const imageDir = path.join('Images', link.replace(/^\/|\/$/g, ''));
+                const imageDir = path.join('Images', cleanedLink);
                 await fs.mkdir(imageDir, { recursive: true });
 
                 for (const image of images) {
@@ -126,15 +102,17 @@ async function main({
                             const imagePath = path.join(imageDir, fileName);
                             await fs.writeFile(imagePath, buffer);
                             console.log(chalk.green(`Saved image: ${imagePath}`));
+                            await page.waitForTimeout(2300); // ⏱ Пауза мпаежду загрузками картинок
                         } catch (err) {
                             console.error(chalk.red(`Error saving image ${image.src}: ${err}`));
                         }
                     }
                 }
 
+                await page.waitForTimeout(3700); // ⏱ Пауза перед следующей ссылкой
+
             } catch (error) {
                 console.error(chalk.red(`Error processing link ${link}: ${error}`));
-                continue; // Continue with the next link
             }
         }
 
