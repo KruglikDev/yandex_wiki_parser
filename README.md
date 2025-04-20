@@ -1,41 +1,29 @@
-# 🤘 Welcome to Stagehand!
+План:
+1) Запускаем парсер, ждем паузу, авторизируемся (здесь нужно закомментировать остальной код парсера).
+2) Собираем ссылки в боковой панели: их нужно открывать + они подгружаются динамически, если проскроллить до конца - пропадут ссылки в начале. Создать Set и отфильтровать повторы.
+3) Загрузить ссылки в файл со ссылками, установить свежие ru прокси, раскомментировать код парсера.
+4) Запустить парсер npm run start, авторизоваться, отжать паузу и ждать. Не забываем про настройки БД в докере.
 
-Hey! This is a project built with [Stagehand](https://github.com/browserbase/stagehand).
+conda activate yandex_wiki
 
-You can build your own web agent using: `npx create-browser-app`!
+// СОЗДАТЬ БД
+docker run --name yandex_wiki -e POSTGRES_PASSWORD=123 -e POSTGRES_USER=kruglik -e POSTGRES_DB=yandex_wiki_db -p 5438:5432 -d postgres
 
-## Setting the Stage
+// ВОЙТИ В БД
+docker exec -it yandex_wiki psql -U kruglik -d yandex_wiki_db
 
-Stagehand is an SDK for automating browsers. It's built on top of [Playwright](https://playwright.dev/) and provides a higher-level API for better debugging and AI fail-safes.
+// СОЗДАТЬ ТАБЛИЦУ
+CREATE TABLE wiki (
+    id SERIAL PRIMARY KEY,         -- Автоинкрементный ID
+    route TEXT UNIQUE NOT NULL,    -- Уникальный маршрут (например, "/home/about") - сюда передаем link вот этот link = links[idx]
+    content TEXT NOT NULL,         -- Содержимое, можно хранить markdown - сюда сохраняем page_content
+    isParsed BOOLEAN DEFAULT FALSE -- Если успешно загрузили данные — меняем на TRUE
+);
 
-## Curtain Call
+// ПРОВЕРИТЬ СТРУКТУРУ ТАБЛИЦЫ
+\d wiki
 
-Get ready for a show-stopping development experience. Just run:
+// УДАЛИТЬ ВСЕ ИЗ ТАБЛИЦЫ НО ОСТАВИТЬ СТРУКТУРУ
+TRUNCATE TABLE wiki RESTART IDENTITY;
 
-```bash
-npm install && npm start
-```
-
-## What's Next?
-
-### Add your API keys
-
-Required API keys/environment variables are in the `.env.example` file. Copy it to `.env` and add your API keys.
-
-```bash
-cp .env.example .env && nano .env # Add your API keys to .env
-```
-
-### Custom .cursorrules
-
-We have custom .cursorrules for this project. It'll help quite a bit with writing Stagehand easily.
-
-### Run on Browserbase
-
-To run on Browserbase, add your API keys to .env and change `env: "LOCAL"` to `env: "BROWSERBASE"` in [stagehand.config.ts](stagehand.config.ts).
-
-### Use Anthropic Claude 3.5 Sonnet
-
-1. Add your API key to .env
-2. Change `modelName: "gpt-4o"` to `modelName: "claude-3-5-sonnet-latest"` in [stagehand.config.ts](stagehand.config.ts)
-3. Change `modelClientOptions: { apiKey: process.env.OPENAI_API_KEY }` to `modelClientOptions: { apiKey: process.env.ANTHROPIC_API_KEY }` in [stagehand.config.ts](stagehand.config.ts)
+psql -h localhost -U kruglik -d yandex_wiki_db -p 5438 -c "SELECT * FROM wiki LIMIT 15;" > output.json
